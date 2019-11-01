@@ -1,0 +1,23 @@
+html,body
+{padding: 0px;margin: 0px;background-color: #f3f3f3;color: #222;}
+
+h1
+{font-family: monospace;}
+
+#app
+{color: #222;padding: 20px;margin: 0px auto;max-width: 1280px;box-sizing: border-box;}
+
+.code-comparison-wrapper
+{display: flex;}
+.code-comparison-wrapper > *
+{flex-grow: 1;}
+.code-comparison-wrapper pre
+{background-color: #111;color: #ccc;padding: 10px 30px 10px 10px;overflow: auto;max-height: 90vh;min-width: 480px;box-sizing: border-box;white-space: pre-wrap;margin: 10px;border-radius: 3px;}
+.code-output-container
+{margin: 10px;padding: 10px;border: 1px solid #999;border-radius: 3px;box-sizing: border-box;}
+
+@media screen and (max-width: 640px)
+{
+	.code-comparison-wrapper
+	{flex-direction: column;}
+}
