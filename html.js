@@ -76,7 +76,7 @@
 						return html.createElement.apply(null, [v].concat(Array.from(arguments)));
 					};
 				})(arr[i]);
-			});
+			}
 			return map;
 		})(['div', 'span', 'ul', 'li', 'dl', 'dt', 'dd', 'input', 'textarea', 'button', 'label', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'th', 'td', 'caption', 'header', 'footer', 'main', 'nav', 'br', 'hr', 'iframe', 'b', 'i', 'u', 'a', 'strong', 'link', 'script', 'style', 'title', 'html', 'body', 'head', 'article', 'aside', 'details', 'hgroup', 'section', 'summary', 'base', 'basefont', 'meta', 'datalist', 'fieldset', 'form', 'legend', 'meter', 'optgroup', 'option', 'select', 'blockquote', 'abbr', 'acronym', 'address', 'bdi', 'bdo', 'big', 'center', 'cite', 'code', 'del', 'dfn', 'em', 'font', 'ins', 'kbd', 'mark', 'output', 'pre', 'progress', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'strike', 'sub', 'sup', 'tt', 'var', 'wbr', 'dir', 'menu', 'ol', 'col', 'colgroup', 'tbody', 'thead', 'tfoot', 'noscript', 'area', 'audio', 'canvas', 'embed', 'figcaption', 'figure', 'frame', 'frameset', 'iframe', 'img', 'map', 'noframes', 'object', 'param', 'source', 'time', 'video']), {
 			'precode': function()
