@@ -110,6 +110,17 @@
 				render: function(container, append)
 				{
 					this.parent = container;
+					// Test if stateless, passthrough
+					var s = this;
+					while(!('$state' in s))
+					{
+						if(!s.parent)
+						{
+							break;
+						}
+						s = s.parent;
+					}
+					this.root = s; // set self-reference, in case of passthrough, this may not refer to itself
 					
 					// set context of the child fnc to the parent
 					// pass as first argument also the parent, we can use context or first argument, whichever is more convenient
@@ -144,7 +155,8 @@
 			var self = {
 				type: 'htmlElementComponent',
 				tag: tag,
-				parent: null,
+				parent: null, // like parentNode
+                root: null, // the first parentNode that has a $state property
 				listeners: {},
 				element: element,
 				children: []
@@ -157,162 +169,168 @@
 			
 			// Flatten arrays recursively
 			self.children = children = flatten(children);
-			// Fix children to be HTML components
-			for(var i=0;i<children.length;++i)
+			
+			function handleChildren()
 			{
-				var child = children[i];
-				if(typeof child === 'function')
+				// Fix children to be HTML components
+				for(var i=0;i<children.length;++i)
 				{
-					// if a function is given, we intend to use it as an inline render-only object
-					children[i] = html.createRenderer(child);
-				}
-				else if(typeof child !== 'object')
-				{
-					children[i] = html.createElement('span', {innerText: child});
-				}
-				else if(child === null)
-				{
-					children.splice(i--, 1);
-				}
-			}
-			
-			
-			return merge(self, {
-				updateProperties: function()
-				{
-					// Add properties (except state)
-					for(var k in options)
+					var child = children[i];
+					if(typeof child === 'function')
 					{
-						if(Object.prototype.hasOwnProperty.call(options, k))
+						// if a function is given, we intend to use it as an inline render-only object
+						children[i] = html.createRenderer(child);
+					}
+					else if(typeof child !== 'object')
+					{
+						children[i] = html.createElement('span', {innerText: child});
+					}
+					else if(child === null)
+					{
+						children.splice(i--, 1);
+					}
+				}
+				
+				return merge(self, {
+					updateProperties: function()
+					{
+						// Add properties (except state)
+						for(var k in options)
 						{
-							var v = options[k];
-							if(k === 'className' && Array.isArray(v))
+							if(Object.prototype.hasOwnProperty.call(options, k))
 							{
-								v = v.join(' ');
-							}
-							if(/^on[a-z]+$/gi.test(k))
-							{
-								// event handler
-								self.updateListener(k, v);
-							}
-							else if(/^[$]/gi.test(k))
-							{
-								// this is a property for the component wrapper, not the HTML element itself.. consume upon use
-								if(typeof self[k] !== 'object' && self[k] !== null && !Array.isArray(self[k]))
+								var v = options[k];
+								if(k === 'className' && Array.isArray(v))
 								{
-									self[k] = merge(self[k], v);
+									v = v.join(' ');
 								}
-								else
+								if(/^on[a-z]+$/gi.test(k))
 								{
-									merge(self[k], v);
+									// event handler
+									self.updateListener(k, v);
 								}
-								if(typeof self[k] === 'function')
+								else if(/^[$]/gi.test(k))
 								{
-									self[k] = (function(fn)
+									// this is a property for the component wrapper, not the HTML element itself.. consume upon use
+									if(typeof self[k] !== 'object' && self[k] !== null && !Array.isArray(self[k]))
 									{
-										// make sure context is always self (Function.bind)
-										return function()
+										self[k] = merge(self[k], v);
+									}
+									else
+									{
+										merge(self[k], v);
+									}
+									if(typeof self[k] === 'function')
+									{
+										self[k] = (function(fn)
 										{
-											fn.apply(self, arguments);
-										};
-									})(self[k]);
-								}
-								delete options[k]; // consume
-							}
-							else
-							{
-								// element[k] =  -> this won't work for attributes like element.style
-								if(typeof element[k] !== 'object' && element[k] !== null && !Array.isArray(element[k]))
-								{
-									element[k] = merge(element[k], v);
+											// make sure context is always self (Function.bind)
+											return function()
+											{
+												fn.apply(self, arguments);
+											};
+										})(self[k]);
+									}
+									delete options[k]; // consume
 								}
 								else
 								{
-									merge(element[k], v);
+									// element[k] =  -> this won't work for attributes like element.style
+									if(typeof element[k] !== 'object' && element[k] !== null && !Array.isArray(element[k]))
+									{
+										element[k] = merge(element[k], v);
+									}
+									else
+									{
+										merge(element[k], v);
+									}
 								}
 							}
 						}
-					}
-				},
-				updateState: function()
-				{
-					if(self !== self.selfRef)
+					},
+					updateState: function()
 					{
-						return; // don't update state if passthrough
-					}
-					var s = self.$state;
-					if(!s)
-					{
-						return;
-					}
-					s.isLoading = false;
-					for(var k in s)
-					{
-						if(Object.prototype.hasOwnProperty.call(s, k))
+						if(self !== self.selfRef)
 						{
-							(function(k, v)
+							return; // don't update state if passthrough
+						}
+						var s = self.$state;
+						if(!s)
+						{
+							return;
+						}
+						s.isLoading = false;
+						for(var k in s)
+						{
+							if(Object.prototype.hasOwnProperty.call(s, k))
 							{
-								// Automatically handle promises in first level of the state, and re-render upon completion
-								if(typeof v === 'object' && v !== null)
+								(function(k, v)
 								{
-									if(v instanceof Promise)
+									// Automatically handle promises in first level of the state, and re-render upon completion
+									if(typeof v === 'object' && v !== null)
 									{
-										s.isLoading = true;
-										s[k] = {
-											type: 'htmlPromiseHandler',
-											promise: v
-												.then(result => s[k] = result)
-												.catch(error => s.error = error)
-												.finally(self.render)
-										};
+										if(v instanceof Promise)
+										{
+											s.isLoading = true;
+											s[k] = {
+												type: 'htmlPromiseHandler',
+												promise: v
+													.then(result => s[k] = result)
+													.catch(error => s.error = error)
+													.finally(self.render)
+											};
+										}
+										else if(v.type === 'htmlPromiseHandler')
+										{
+											s.isLoading = true;
+										}
 									}
-									else if(v.type === 'htmlPromiseHandler')
+									else if(typeof v === 'function') // execute functions in state, and replace
 									{
-										s.isLoading = true;
+										s[k] = v.call(self, self);
 									}
-								}
-								else if(typeof v === 'function') // execute functions in state, and replace
-								{
-									s[k] = v.call(self, self);
-								}
-							})(k, s[k]);
+								})(k, s[k]);
+							}
 						}
-					}
-	
-				},
-				isLoading: () => !!self.selfRef.$state.isLoading,
-				hasError: () => !!self.selfRef.$state.error,
-				setState: function(newstate)
-				{
-					merge(self.selfRef.$state, newstate);
-					
-					self.selfRef.render();
-				},
-				updateListener: function(k, fnc)
-				{
-					if(typeof fnc !== 'function')
+		
+					},
+					isLoading: () => !!self.selfRef.$state.isLoading,
+					hasError: () => !!self.selfRef.$state.error,
+					setState: function(newstate)
 					{
-						if(typeof self.listeners[k] === 'function')
-						{
-							element.removeEventListener(k.substring(2), self.listeners[k]);
-							delete self.listeners[k];
-						}
-					}
-					else if(self.listeners[k] !== fnc) // unless listener is already exactly equal
-					{
-						if(typeof self.listeners[k] === 'function')
-						{
-							element.removeEventListener(k.substring(2), self.listeners[k]);
-						}
-						element.addEventListener(k.substring(2), function(e){ e = e || window.event || {}; e.$self = self.selfRef; e.$element = self.element || self.selfRef.element; options[k].call(self.selfRef, e); }, false);
-						self.listeners[k] = fnc;
+						merge(self.selfRef.$state, newstate);
 						
-					}
-				},
-				destroy: function(childrenToo)
-				{
-					if(self.element.parentNode)
+						self.selfRef.render();
+					},
+					updateListener: function(k, fnc)
 					{
+						if(typeof fnc !== 'function')
+						{
+							if(typeof self.listeners[k] === 'function')
+							{
+								element.removeEventListener(k.substring(2), self.listeners[k]);
+								delete self.listeners[k];
+							}
+						}
+						else if(self.listeners[k] !== fnc) // unless listener is already exactly equal
+						{
+							if(typeof self.listeners[k] === 'function')
+							{
+								element.removeEventListener(k.substring(2), self.listeners[k]);
+							}
+							element.addEventListener(k.substring(2), function(e){ e = e || window.event || {}; e.$self = self.selfRef; e.$element = self.element || self.selfRef.element; options[k].call(self.selfRef, e); }, false);
+							self.listeners[k] = fnc;
+							
+						}
+					},
+					destroy: function(childrenToo)
+					{
+						if(!self.element.parentNode)
+						{
+							// only return true if the element could still be destroyed (not destroyed already)
+							return false;
+						}
+						
 						// first destroy children
 						if(childrenToo && self.children.length)
 						{
@@ -334,80 +352,111 @@
 						
 						// then finally remove child
 						self.element.parentNode.removeChild(self.element);
-					}
-				},
-				exec: function(fn) // return a function, if you want something to be run when the component is destroyed
-				{
-					self.render(); // always render before exec
-					
-					var result = fn.call(self, self);
-					if(typeof result === 'function')
+						
+						return true;
+					},
+					exec: function(fn) // return a function, if you want something to be run when the component is destroyed
 					{
-						self.destroyCallbacks = self.destroyCallbacks || [];
-						self.destroyCallbacks.push(result);
-					}
-					return self;
-				},
-				appendTo: function(container)
-				{
-					return self.render(container, true); // alias for render with append=true
-				},
-				render: function(container, append)
-				{
-					if(container && container.element)
-					{
-						self.parent = container;
-						// Test if stateless, passthrough
-						var s = self;
-						while(s.$state === null)
+						self.render(); // always render before exec
+						
+						var result = fn.call(self, self);
+						if(typeof result === 'function')
 						{
-							if(!s.parent)
+							self.destroyCallbacks = self.destroyCallbacks || [];
+							self.destroyCallbacks.push(result);
+						}
+						return self;
+					},
+					appendTo: function(container)
+					{
+						return self.render(container, true); // alias for render with append=true
+					},
+					render: function(container, append)
+					{
+						if(container && container.element)
+						{
+							self.parent = container;
+							// Test if stateless, passthrough
+							var s = self;
+							while(!('$state' in s))
 							{
-								break;
+								if(!s.parent)
+								{
+									break;
+								}
+								s = s.parent;
 							}
-							s = s.parent;
+							self.root = s; // set self-reference, in case of passthrough, this may not refer to itself
 						}
-						self.selfRef = s; // set self-reference, in case of passthrough, this may not refer to itself
-					}
-					
-					// Update properties
-					self.updateProperties();
-					
-					// Update state
-					self.updateState();
-					
-					// Update content, but only if there's a parentNode (thus it is not destroyed)
-					if(container || self.element.parentNode)
-					{
-						if(self.children.length)
+						
+						// Update properties
+						self.updateProperties();
+						
+						// Update state
+						self.updateState();
+						
+						// Update content, but only if there's a parentNode (thus it is not destroyed)
+						if(container || self.element.parentNode)
 						{
-							self.element.innerHTML = '';
-							
-							for(var child of self.children)
+							if(self.children.length)
 							{
-								child.render.call(child, self, true);
+								self.element.innerHTML = '';
+								
+								for(var child of self.children)
+								{
+									child.render.call(child, self, true);
+								}
 							}
 						}
-					}
-					
-					// Update binding to parent
-					if(container)
-					{
-						var c = container.element || container;
-						if(append)
+						
+						// Update binding to parent
+						if(container)
 						{
-							c.appendChild(self.element);
+							var c = container.element || container;
+							if(append)
+							{
+								c.appendChild(self.element);
+							}
+							else
+							{
+								c.innerHTML = '';
+								c.appendChild(self.element);
+							}
 						}
-						else
-						{
-							c.innerHTML = '';
-							c.appendChild(self.element);
-						}
+						
+						return null; // explicitly return null for render function, as it should always be the last in chain, otherwise, when returning from Renderer it may result in rendering twice
 					}
-					
-					return null; // explicitly return null for render function, as it should always be the last in chain, otherwise, when returning from Renderer it may result in rendering twice
+				});
+			}
+			
+			// check if any child has a Promise
+			var hasPromise = false;
+			for(var i=0;!hasPromise && i<children.length;++i)
+			{
+				var c = children[i];
+				if(typeof c === 'object' && c !== null && c instanceof Promise)
+				{
+					hasPromise = true;
 				}
-			});
+			}
+			
+			if(hasPromise)
+			{
+				// if any child has a promise, then replace the children with the promise result (or non-promise that was already there)
+				// return a new promise, that will return the object after children promises have been fulfilled
+				return new Promise(function(resolve, reject)
+				{
+					Promise.all(children).then(function(result)
+					{
+						self.children = children = result;
+						resolve(handleChildren());
+					});
+				});
+			}
+			else
+			{
+				return handleChildren();
+			}
 		}
 	};
 })(window);
