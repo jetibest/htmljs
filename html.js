@@ -168,10 +168,11 @@
 			self.selfRef = self;
 			
 			// Flatten arrays recursively
-			self.children = children = flatten(children);
+			// self.children = children = flatten(children);
 			
-			function handleChildren()
+			function _createElement()
 			{
+				/*
 				// Fix children to be HTML components
 				for(var i=0;i<children.length;++i)
 				{
@@ -189,7 +190,7 @@
 					{
 						children.splice(i--, 1);
 					}
-				}
+				}*/
 				
 				return merge(self, {
 					updateProperties: function()
@@ -429,33 +430,75 @@
 				});
 			}
 			
-			// check if any child has a Promise
-			var hasPromise = false;
-			for(var i=0;!hasPromise && i<children.length;++i)
+			// check if any child has a Promise (children has to be an array)
+			function _handleChildren(children)
 			{
-				var c = children[i];
-				if(typeof c === 'object' && c !== null && c instanceof Promise)
+				var promises = [];
+				for(var i=0;i<children.length;++i)
 				{
-					hasPromise = true;
+					var child = children[i];
+					if(typeof child === 'object' && child !== null && child instanceof Promise)
+					{
+						// set children result upon completion
+						(function(child, i)
+						{
+							promises.push(new Promise(function(resolve, reject)
+							{
+								child.then(function(result)
+								{
+									var subPromises = _handleChildren(flatten([result]));
+									
+									if(subPromises.length > 0)
+									{
+										// wait until sub children have been resolved before resolving this child
+										Promise.all(subPromises).then(resolve).catch(reject);
+									}
+									else
+									{
+										resolve();
+									}
+								
+								}).catch(reject);
+							}));
+						})(child, i);
+					}
+					else if(typeof child === 'function')
+					{
+						// if a function is given, we intend to use it as an inline render-only object
+						children[i] = html.createRenderer(child);
+					}
+					else if(typeof child !== 'object')
+					{
+						children[i] = html.createElement('span', {innerText: child});
+					}
+					else if(child === null)
+					{
+						children.splice(i--, 1);
+					}
 				}
+				return promises;
 			}
 			
-			if(hasPromise)
+			// set property reference
+			self.children = children = flatten(children);
+			
+			// handle children recursively async
+			var promises = _handleChildren(children);
+			
+			if(promises.length > 0)
 			{
-				// if any child has a promise, then replace the children with the promise result (or non-promise that was already there)
 				// return a new promise, that will return the object after children promises have been fulfilled
 				return new Promise(function(resolve, reject)
 				{
-					Promise.all(children).then(function(result)
+					Promise.all(promises).then(function()
 					{
-						self.children = children = result;
-						resolve(handleChildren());
-					});
+						resolve(_createElement());
+					}).catch(reject);
 				});
 			}
 			else
 			{
-				return handleChildren();
+				return _createElement();
 			}
 		}
 	};
