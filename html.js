@@ -167,31 +167,8 @@
 			// set selfReference, this may change to parent later, if state is null
 			self.selfRef = self;
 			
-			// Flatten arrays recursively
-			// self.children = children = flatten(children);
-			
 			function _createElement()
 			{
-				/*
-				// Fix children to be HTML components
-				for(var i=0;i<children.length;++i)
-				{
-					var child = children[i];
-					if(typeof child === 'function')
-					{
-						// if a function is given, we intend to use it as an inline render-only object
-						children[i] = html.createRenderer(child);
-					}
-					else if(typeof child !== 'object')
-					{
-						children[i] = html.createElement('span', {innerText: child});
-					}
-					else if(child === null)
-					{
-						children.splice(i--, 1);
-					}
-				}*/
-				
 				return merge(self, {
 					updateProperties: function()
 					{
@@ -231,6 +208,17 @@
 												fn.apply(self, arguments);
 											};
 										})(self[k]);
+										
+										if(k === '$init')
+										{
+											// run as soon as it is interpreted
+											self[k]();
+										}
+										else if(k === '$load')
+										{
+											// run after for example .innerHTML property has been set (but promises may not be done yet)
+											setTimeout(self[k], 0);
+										}
 									}
 									delete options[k]; // consume
 								}
@@ -414,14 +402,30 @@
 						if(container)
 						{
 							var c = container.element || container;
+							var ctag = (c.nodeName + '').toLowerCase();
+							var isTextContentOnly = ctag === 'script' || ctag === 'style';
 							if(append)
 							{
-								c.appendChild(self.element);
+								if(isTextContentOnly)
+								{
+									c.innerText += self.element.innerText;
+								}
+								else
+								{
+									c.appendChild(self.element);
+								}
 							}
 							else
 							{
-								c.innerHTML = '';
-								c.appendChild(self.element);
+								if(isTextContentOnly)
+								{
+									c.innerText = self.element.innerText;
+								}
+								else
+								{
+									c.innerHTML = '';
+									c.appendChild(self.element);
+								}
 							}
 						}
 						
@@ -429,10 +433,10 @@
 					}
 				});
 			}
-			
 			// check if any child has a Promise (children has to be an array)
-			function _handleChildren(children)
+			var _handleChildren = function(children)
 			{
+				var self = this;
 				var promises = [];
 				for(var i=0;i<children.length;++i)
 				{
@@ -446,7 +450,7 @@
 							{
 								child.then(function(result)
 								{
-									var subPromises = _handleChildren(flatten([result]));
+									var subPromises = _handleChildren.call(self, flatten([result]));
 									
 									if(subPromises.length > 0)
 									{
@@ -477,13 +481,13 @@
 					}
 				}
 				return promises;
-			}
+			};
 			
 			// set property reference
 			self.children = children = flatten(children);
 			
 			// handle children recursively async
-			var promises = _handleChildren(children);
+			var promises = _handleChildren.call(self, children);
 			
 			if(promises.length > 0)
 			{
