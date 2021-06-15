@@ -2,19 +2,25 @@ const $ = html.$;
 
 function TodoItem(item)
 {
-  return $.li(item.text, $.button({onclick}, 'Remove'));
+  return $.li(item.text, $.button({
+    style: {color: '#f00'},
+    onclick: function()
+    {
+      this.root.$removeItem(item);
+    }
+  }, 'Remove'));
 }
 function TodoList(items)
 {
   return $.ul(items.map(TodoItem));
 }
-function TodoForm(n, cb)
+function TodoForm(n)
 {
   let text = '';
   return $.form({
       onsubmit: e => {
         e.preventDefault();
-        cb({
+        this.$addItem({
           id: Date.now(),
           text: text
         });
@@ -29,16 +35,27 @@ function TodoForm(n, cb)
 }
 function TodoApp()
 {
-  return $.div({$state: {items: []}},
+  return $.div({
+      $state: {
+        items: []
+      },
+      $addItem: function $addItem(item)
+      {
+        this.$state.items.push(item);
+        this.render();
+      },
+      $removeItem: function $removeItem(item)
+      {
+        this.$state.items.splice(this.$state.items.indexOf(item), 1);
+        this.render();
+      }
+    },
     function()
     {
       return [
         $.h3('TODO'),
         TodoList(this.$state.items),
-        TodoForm(this.$state.items.length, item => {
-          this.$state.items.push(item);
-          this.render();
-        })
+        TodoForm.call(this, this.$state.items.length)
       ];
     }
   );
