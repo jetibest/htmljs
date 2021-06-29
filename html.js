@@ -42,11 +42,83 @@
 		}
 		return a;
 	};
+	// matches if arg is equal to obj
+	// arg=null is a wildcard, empty objects like [] and {} will also match any value of the same type
+	function match_objects(obj, arg)
+	{
+		if(arg === null)
+		{
+			return true;
+		}
+		else if(typeof arg === 'object')
+		{
+			if(Array.isArray(arg))
+			{
+				if(!Array.isArray(obj))
+				{
+					for(var j=0;j<arg.length;++j)
+					{
+						if(!match_objects(obj, arg[j]))
+						{
+							return false;
+						}
+					}
+					return true;
+				}
+				else if(arg.length > 0 && arg.length !== obj.length)
+				{
+					return false;
+				}
+				else
+				{
+					for(var j=0;j<arg.length && j<obj.length;++j)
+					{
+						if(!match_objects(obj[j], arg[j]))
+						{
+							return false;
+						}
+					}
+					return true;
+				}
+			}
+			else if(typeof obj !== 'object' || Array.isArray(obj))
+			{
+				return false;
+			}
+			else
+			{
+				for(var k in arg)
+				{
+					if(Object.prototype.hasOwnProperty.call(arg, k))
+					{
+						if(Object.prototype.hasOwnProperty.call(obj, k))
+						{
+							if(!match_objects(obj[k], arg[k]))
+							{
+								return false;
+							}
+						}
+						else
+						{
+							return false;
+						}
+					}
+				}
+				return true;
+			}
+		}
+		else
+		{
+			return obj === arg;
+		}
+	}
 	var handleResult = function(result, container, append)
 	{
+		var components = [];
 		if(result !== null && typeof result === 'object' && result.type === 'htmlElementComponent')
 		{
 			result.render(container, append);
+			components.push(result);
 		}
 		else if(typeof result === 'string' || typeof result === 'number' || (typeof result === 'object' && result != null))
 		{
@@ -54,14 +126,17 @@
 			{
 				for(var i=0;i<result.length;++i)
 				{
-					handleResult(result[i], container, append);
+					components.push(handleResult(result[i], container, append));
 				}
 			}
 			else
 			{
-				html.createElement('span', {innerText: result}).render(container, append);
+				var span = html.createElement('span', {innerText: result});
+				span.render(container, append);
+				components.push(span);
 			}
 		}
+		return flatten(components);
 	};
 	return (root || {}).html = {
 		$: merge((function(arr) // shortcuts for commonly used html-elements
@@ -107,49 +182,17 @@
 		createRenderer: function(fnc) // used by createElement, cannot be a root element, and is always embedded in a createElement, so no use of calling this directly
 		{
 			return {
-				_element: null,
+				type: 'htmlRendererComponent',
+				children: [],
 				render: function(container, append)
 				{
-					var self = this;
-					
-					// function is only called once upon creation, later renders don't do anything
-					if(!container)
+					this.children = [];
+					var components = handleResult(fnc.call(container, container), container, append);
+					for(var i=0;i<components.length;++i)
 					{
-						// pass render to the shadow element
-						if(self._element && typeof self._element.render === 'function')
-						{
-							self._element.render();
-						}
-						return self.parent;
+						var c = components[i];
+						this.children.push(c);
 					}
-					
-					self.parent = container;
-					// Test if stateless, passthrough
-					var s = self;
-					while(!('$state' in s))
-					{
-						if(!s.parent)
-						{
-							break;
-						}
-						s = s.parent;
-					}
-					self.root = s; // set self-reference, in case of passthrough, this may not refer to itself
-					
-					// set context of the child fnc to the parent
-					// pass as first argument also the parent, we can use context or first argument, whichever is more convenient
-					// and pass a function that will render the arguments-list, and possibly wrap in div if multiple components were specified
-					var result = fnc.call(container.selfRef, container.selfRef, function()
-					{
-						if(arguments.length)
-						{
-							self._element = html.createElement('div', {}, Array.from(arguments));
-							self._element.render(container, append);
-						}
-						// else: nothing to render
-					});
-					handleResult(result, container, append);
-					return container;
 				}
 			};
 		},
@@ -169,18 +212,13 @@
 			var element = document.createElement(tag);
 			var self = {
 				type: 'htmlElementComponent',
+				children: [],
 				tag: tag,
 				parent: null, // like parentNode
                 root: null, // the first parentNode that has a $state property
 				listeners: {},
-				element: element,
-				children: []
-				//$state: options.$state === null ? null : merge({}, options.$state || {}) // support null-state, for stateless passthrough.. if explicitly set to null, 'this' refers to parent, it's as if this element does not exist..
+				element: element
 			};
-			//delete options.$state;
-			
-			// set selfReference, this may change to parent later, if state is null
-			self.selfRef = self;
 			
 			function _createElement()
 			{
@@ -248,10 +286,6 @@
 					},
 					updateState: function()
 					{
-						if(self !== self.selfRef)
-						{
-							return; // don't update state if passthrough
-						}
 						var s = self.$state;
 						if(!s)
 						{
@@ -291,13 +325,177 @@
 							}
 						}
 					},
-					isLoading: () => !!self.selfRef.$state.isLoading,
-					hasError: () => !!self.selfRef.$state.error,
+					// querySelector equivalent on element, but retrieve the respective renderer object instead
+					// may also directly pass a html node or element to find the respective renderer object (only if element is child of the current object)
+					querySelector: function(selector)
+					{
+						var elem;
+						if(typeof selector === 'string')
+						{
+							elem = self.element.querySelector(selector);
+							if(!elem) return null;
+						}
+						else if(typeof selector === 'object')
+						{
+							elem = selector;
+						}
+						else
+						{
+							return null;
+						}
+						
+						var prev_e = elem;
+						var e = elem;
+						while(e !== self.element)
+						{
+							prev_e = e;
+							e = e.parentNode;
+							if(!e) return null;
+						}
+						
+						if(prev_e === e)
+						{
+							return self;
+						}
+						
+						var children = self.children.slice();
+						for(var i=0;i<children.length;++i)
+						{
+							var child = children[i];
+							if(child.type === 'htmlElementComponent')
+							{
+								if(child.element === prev_e)
+								{
+									return child.querySelector(elem);
+								}
+							}
+							else if(child.type === 'htmlRendererComponent')
+							{
+								// expand dynamic children from renderer
+								children.splice.apply(children, [i+1, 0].concat(child.children));
+							}
+						}
+						return null;
+					},
+					querySelectorAll: function(selector)
+					{
+						var result = [];
+						var elems = [];
+						if(typeof selector === 'string')
+						{
+							elems = self.element.querySelectorAll(selector);
+							if(elems.length === 0) return result;
+						}
+						else if(typeof selector === 'object')
+						{
+							elems = [selector];
+						}
+						else
+						{
+							return result;
+						}
+						
+						for(var i=0;i<elems.length;++i)
+						{
+							var elem = elems[i];
+							var prev_e = elem;
+							var e = elem;
+							while(e !== self.element)
+							{
+								prev_e = e;
+								e = e.parentNode;
+								if(!e) break;
+							}
+							if(e)
+							{
+								if(prev_e === e)
+								{
+									result.push(self);
+								}
+								else
+								{
+									var children = self.children.slice();
+									for(var j=0;j<children.length;++j)
+									{
+										var child = children[j];
+										if(child.type === 'htmlElementComponent')
+										{
+											if(child.element === prev_e)
+											{
+												result.push(child.querySelectorAll(elem));
+											}
+										}
+										else if(child.type === 'htmlRendererComponent')
+										{
+											// expand dynamic children from renderer
+											children.splice.apply(children, [j+1, 0].concat(child.children));
+										}
+									}
+								}
+							}
+						}
+						
+						return flatten(result);
+					},
+					// find based on characteristic, like $state structure, or $id value
+					find: function(query, matchSelf)
+					{
+						// usage: container.find({$state: {images: []}}), container.find({$id: 'SomeIdentifier'}), container.find({element: {id: 'SomeIdentifier'}})
+						if(matchSelf && match_objects(self, query))
+						{
+							return self;
+						}
+						var children = self.children.slice();
+						for(var i=0;i<children.length;++i)
+						{
+							var child = children[i];
+							if(child.type === 'htmlElementComponent')
+							{
+								var result = false;
+								if((result = child.find(query, true)) !== null)
+								{
+									return result;
+								}
+							}
+							else if(child.type === 'htmlRendererComponent')
+							{
+								// expand dynamic children from renderer
+								children.splice.apply(children, [i+1, 0].concat(child.children));
+							}
+						}
+						return null;
+					},
+					// find all based on characteristic, like $state structure, or $id value
+					findAll: function(query, matchSelf)
+					{
+						if(matchSelf && match_objects(self, query))
+						{
+							return [self];
+						}
+						var found = [];
+						var children = self.children.slice();
+						for(var i=0;i<children.length;++i)
+						{
+							var child = children[i];
+							if(child.type === 'htmlElementComponent')
+							{
+								found.push(child.findAll(query, true));
+							}
+							else if(child.type === 'htmlRendererComponent')
+							{
+								// expand dynamic children from renderer
+								children.splice.apply(children, [i+1, 0].concat(child.children));
+							}
+						}
+						return flatten(found);
+					},
+					isLoading: () => !!self.$state.isLoading,
+					hasError: () => !!self.$state.error,
 					setState: function(newstate)
 					{
-						merge(self.selfRef.$state, newstate);
+						merge(self.$state, newstate);
 						
-						self.selfRef.render();
+						self.render();
 					},
 					updateListener: function(k, fnc)
 					{
@@ -315,7 +513,7 @@
 							{
 								element.removeEventListener(k.substring(2), self.listeners[k]);
 							}
-							element.addEventListener(k.substring(2), function(e){ e = e || window.event || {}; e.$self = self.selfRef; e.$element = self.element || self.selfRef.element; options[k].call(self.selfRef, e); }, false);
+							element.addEventListener(k.substring(2), function(e){ e = e || window.event || {}; e.$self = self; e.$element = self.element; options[k].call(self, e); }, false);
 							self.listeners[k] = fnc;
 							
 						}
@@ -386,6 +584,7 @@
 						if(container && container.element)
 						{
 							self.parent = container;
+							
 							// Test if stateless, passthrough
 							var s = self;
 							while(!('$state' in s))
