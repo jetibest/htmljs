@@ -107,11 +107,25 @@
 		createRenderer: function(fnc) // used by createElement, cannot be a root element, and is always embedded in a createElement, so no use of calling this directly
 		{
 			return {
+				_element: null,
 				render: function(container, append)
 				{
-					this.parent = container;
+					var self = this;
+					
+					// function is only called once upon creation, later renders don't do anything
+					if(!container)
+					{
+						// pass render to the shadow element
+						if(self._element && typeof self._element.render === 'function')
+						{
+							self._element.render();
+						}
+						return self.parent;
+					}
+					
+					self.parent = container;
 					// Test if stateless, passthrough
-					var s = this;
+					var s = self;
 					while(!('$state' in s))
 					{
 						if(!s.parent)
@@ -120,7 +134,7 @@
 						}
 						s = s.parent;
 					}
-					this.root = s; // set self-reference, in case of passthrough, this may not refer to itself
+					self.root = s; // set self-reference, in case of passthrough, this may not refer to itself
 					
 					// set context of the child fnc to the parent
 					// pass as first argument also the parent, we can use context or first argument, whichever is more convenient
@@ -129,7 +143,8 @@
 					{
 						if(arguments.length)
 						{
-							html.createElement('div', {}, Array.from(arguments)).render(container, append);
+							self._element = html.createElement('div', {}, Array.from(arguments));
+							self._element.render(container, append);
 						}
 						// else: nothing to render
 					});
@@ -205,22 +220,16 @@
 											// make sure context is always self (Function.bind)
 											return function()
 											{
-												fn.apply(self, arguments);
+												return fn.apply(self, arguments);
 											};
 										})(self[k]);
 										
 										if(k === '$init')
 										{
-											// run as soon as it is interpreted
 											self[k]();
 										}
-										else if(k === '$load')
-										{
-											// run after for example .innerHTML property has been set (but promises may not be done yet)
-											setTimeout(self[k], 0);
-										}
 									}
-									delete options[k]; // consume
+									delete options[k]; // consume property
 								}
 								else
 								{
@@ -281,7 +290,6 @@
 								})(k, s[k]);
 							}
 						}
-		
 					},
 					isLoading: () => !!self.selfRef.$state.isLoading,
 					hasError: () => !!self.selfRef.$state.error,
@@ -360,6 +368,19 @@
 					{
 						return self.render(container, true); // alias for render with append=true
 					},
+					renderChildren: function()
+					{
+						if(self.children.length)
+						{
+							self.element.innerHTML = '';
+							
+							for(var i=0;i<self.children.length;++i)
+							{
+								var child = self.children[i];
+								child.render.call(child, self, true);
+							}
+						}
+					},
 					render: function(container, append)
 					{
 						if(container && container.element)
@@ -384,23 +405,25 @@
 						// Update state
 						self.updateState();
 						
-						// Update content, but only if there's a parentNode (thus it is not destroyed)
-						if(container || self.element.parentNode)
+						// Run prerender
+						if(typeof self.$prerender === 'function')
 						{
-							if(self.children.length)
+							self.$prerender(container, append);
+						}
+						
+						// Render children
+						if(!self.$renderChildren || self.$renderChildren === 'before')
+						{
+							if(container || self.element.parentNode)
 							{
-								self.element.innerHTML = '';
-								
-								for(var child of self.children)
-								{
-									child.render.call(child, self, true);
-								}
+								self.renderChildren();
 							}
 						}
 						
-						// Update binding to parent
+						// Update content, but only if there's a parentNode (thus it is not destroyed)
 						if(container)
 						{
+							// Update binding to parent
 							var c = container.element || container;
 							var ctag = (c.nodeName + '').toLowerCase();
 							var isTextContentOnly = ctag === 'script' || ctag === 'style';
@@ -427,6 +450,16 @@
 									c.appendChild(self.element);
 								}
 							}
+							
+							if(self.$renderChildren === 'after')
+							{
+								self.renderChildren();
+							}
+						}
+						
+						if(typeof self.$postrender === 'function')
+						{
+							self.$postrender(container, append);
 						}
 						
 						return null; // explicitly return null for render function, as it should always be the last in chain, otherwise, when returning from Renderer it may result in rendering twice
