@@ -152,6 +152,7 @@
 		}
 		return flatten(components);
 	};
+	var cachedStyleTag;
 	return (root || {}).html = {
 		$: merge((function(arr) // shortcuts for commonly used html-elements
 		{
@@ -210,19 +211,19 @@
 			}
 			
 			// ensure <style> tag in <head>
-			var styleTag = document.querySelector('head > style[data-html="' + this.version + '"]');
-			if(!styleTag)
+			cachedStyleTag = cachedStyleTag || document.querySelector('head > style[data-html="' + this.version + '"]');
+			if(!cachedStyleTag)
 			{
-				styleTag = document.createElement('style');
-				styleTag.setAttribute('data-html', this.version);
-				document.querySelector('head').appendChild(styleTag);
+				cachedStyleTag = document.createElement('style');
+				cachedStyleTag.setAttribute('data-html', this.version);
+				document.querySelector('head').appendChild(cachedStyleTag);
 			}
 			
 			// inject and bundle css into existing <style> tag
-			var css_bundle = styleTag.innerText.split('\n');
+			var css_bundle = cachedStyleTag.innerText.split('\n');
 			for(var i=0;i<css_bundle.length;++i)
 			{
-				var line = css_bundle[i].trim();
+				var line = css_bundle[i];
 				
 				// search for unique_className lines
 				if(line.substring(0, line.indexOf('{')).substring(0, unique_className.length) === unique_className)
@@ -235,7 +236,11 @@
 					}
 				}
 			}
-			styleTag.innerText = css_bundle.join('\n') + '\n' + css_lines.join('\n') + '\n';
+			// only update if any changes exist
+			if(css_lines.length > 0)
+			{
+				cachedStyleTag.innerText = css_bundle.join('\n') + '\n' + css_lines.join('\n') + '\n';
+			}
 			
 			// return without leading dot
 			return unique_className.substring(1);
