@@ -1,5 +1,19 @@
 (function(root)
 {
+	function hash(keyString)
+	{
+  		let hash = 0;
+  		for (charIndex = 0; charIndex < keyString.length; ++charIndex)
+  		{
+    		hash += keyString.charCodeAt(charIndex);
+    		hash += hash << 10;
+    		hash ^= hash >> 6;
+  		}
+  		hash += hash << 3;
+  		hash ^= hash >> 11;
+  		//4,294,967,295 is FFFFFFFF, the maximum 32 bit unsigned integer value, used here as a mask.
+  		return (((hash + (hash << 15)) & 4294967295) >>> 0).toString(16)
+	}
 	var flatten = (arr) =>
 	{
 		var newArray = [];
@@ -159,6 +173,73 @@
 				return html.$.pre(html.$.code.apply(this, Array.from(arguments)));
 			}
 		}),
+		version: '1.0',
+		css: function(css_text, opts)
+		{
+			// create an anonymous css class in <head> ==> <style data-html="1.0"></style>, and return its className
+			if(typeof css_text === 'object')
+			{
+				opts = css_text;
+				css_text = '';
+			}
+			if(typeof opts !== 'object' || opts === null) opts = {};
+			if(typeof css_text !== 'string') css_text = '';
+			
+			var css_lines = [];
+			
+			// wrap class
+			css_lines.push('&{' + css_text.replace(/(^|\r?\n)\s*/g, ' ') + '}');
+			
+			// add and wrap pseudo-classes
+			for(var k in opts)
+			{
+				if(k.indexOf(':') === 0)
+				{
+					css_lines.push('&:' + k + '{' + opts[k].replace(/(^|\r?\n)\s*/g, ' ') + '}');
+				}
+			}
+			
+			// calculate hash, to come to unique classname
+			var unique_className = '.htmljs-css-' + hash(css_lines.join('\n') + '\n');
+			
+			// apply className
+			for(var i=0;i<css_lines.length;++i)
+			{
+				// replace & with the unique classname
+				css_lines[i] = unique_className + css_lines[i].substring(1);
+			}
+			
+			// ensure <style> tag in <head>
+			var styleTag = document.querySelector('head > style[data-html="' + this.version + '"]');
+			if(!styleTag)
+			{
+				styleTag = document.createElement('style');
+				styleTag.setAttribute('data-html', this.version);
+				document.querySelector('head').appendChild(styleTag);
+			}
+			
+			// inject and bundle css into existing <style> tag
+			var css_bundle = styleTag.innerText.split('\n');
+			for(var i=0;i<css_bundle.length;++i)
+			{
+				var line = css_bundle[i].trim();
+				
+				// search for unique_className lines
+				if(line.substring(0, line.indexOf('{')).substring(0, unique_className.length) === unique_className)
+				{
+					// remove this line from css_lines (due to the hashcode it's "guaranteed" to be the same)
+					var cssLineIndex = css_lines.indexOf(line);
+					if(cssLineIndex !== -1)
+					{
+						css_lines.splice(cssLineIndex, 1);
+					}
+				}
+			}
+			styleTag.innerText = css_bundle.join('\n') + '\n' + css_lines.join('\n') + '\n';
+			
+			// return without leading dot
+			return unique_className.substring(1);
+		},
 		id: function(id) // get html-element by id
 		{
 			return document.getElementById(id);
