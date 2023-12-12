@@ -196,7 +196,7 @@
 			{
 				if(k.indexOf(':') === 0)
 				{
-					css_lines.push('&:' + k + '{' + opts[k].replace(/(^|\r?\n)\s*/g, ' ') + '}');
+					css_lines.push('&' + k + '{' + opts[k].replace(/(^|\r?\n)\s*/g, ' ') + '}');
 				}
 			}
 			
